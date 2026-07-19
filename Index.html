@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <?!= include('Stylesheet'); ?>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <header class="app-header">
+    <div class="app-title">오늘도 생존운동</div>
+    <div class="app-subtitle" id="header-week">불러오는 중…</div>
+  </header>
+
+  <main id="main">
+    <!-- ═══════════ 홈 ═══════════ -->
+    <section id="view-home" class="view">
+      <div class="card progress-card">
+        <div class="progress-row">
+          <span class="progress-label">오늘 달성률</span>
+          <span class="progress-value" id="home-achievement">0%</span>
+        </div>
+        <div class="progress-bar"><div class="progress-fill" id="home-progress-fill"></div></div>
+        <div class="progress-meta" id="home-meta"></div>
+      </div>
+
+      <div class="card">
+        <h2 class="card-title">오늘의 운동</h2>
+        <div id="home-plan-list" class="check-list"></div>
+      </div>
+
+      <div class="card">
+        <h2 class="card-title">오늘의 식사</h2>
+        <div class="meal-status" id="home-meal-status"></div>
+      </div>
+
+      <div class="quick-buttons">
+        <button class="btn btn-primary btn-big" data-goto="workout">운동 기록</button>
+        <button class="btn btn-primary btn-big" data-goto="meal">식사 기록</button>
+      </div>
+
+      <div class="disclaimer">
+        이 앱은 운동과 식사 기록을 위한 개인 생활관리 도구이며, 의료 진단이나 치료를
+        대신하지 않습니다. 흉통, 심한 호흡곤란, 갑작스러운 마비·언어장애·심한
+        어지럼증 등이 발생하면 운동을 중단하고 즉시 응급의료기관에 연락하세요.
+      </div>
+    </section>
+
+    <!-- ═══════════ 운동 기록 ═══════════ -->
+    <section id="view-workout" class="view" hidden>
+      <div class="card">
+        <h2 class="card-title">운동 기록하기</h2>
+        <form id="workout-form">
+          <label class="field">
+            <span class="field-label">운동 종류</span>
+            <select id="wo-type" class="input"></select>
+          </label>
+          <input type="text" id="wo-type-custom" class="input" placeholder="직접 입력 (예: 자전거)" hidden>
+
+          <div class="field-grid">
+            <label class="field">
+              <span class="field-label">목표 시간(분)</span>
+              <input type="number" id="wo-target-min" class="input" min="0" inputmode="numeric" placeholder="20">
+            </label>
+            <label class="field">
+              <span class="field-label">실제 시간(분)</span>
+              <input type="number" id="wo-actual-min" class="input" min="0" inputmode="numeric" placeholder="18">
+            </label>
+          </div>
+
+          <div class="field-grid three">
+            <label class="field">
+              <span class="field-label">목표 횟수</span>
+              <input type="number" id="wo-target-reps" class="input" min="0" inputmode="numeric">
+            </label>
+            <label class="field">
+              <span class="field-label">실제 횟수</span>
+              <input type="number" id="wo-actual-reps" class="input" min="0" inputmode="numeric">
+            </label>
+            <label class="field">
+              <span class="field-label">세트</span>
+              <input type="number" id="wo-sets" class="input" min="0" inputmode="numeric">
+            </label>
+          </div>
+
+          <div class="field">
+            <span class="field-label">운동 강도</span>
+            <div class="seg" id="wo-intensity" data-value="적당함">
+              <button type="button" data-v="매우 가벼움">매우 가벼움</button>
+              <button type="button" data-v="적당함" class="on">적당함</button>
+              <button type="button" data-v="힘듦">힘듦</button>
+            </div>
+          </div>
+
+          <div class="field">
+            <span class="field-label">완료 여부</span>
+            <div class="seg" id="wo-done" data-value="완료">
+              <button type="button" data-v="완료" class="on">완료</button>
+              <button type="button" data-v="일부 완료">일부 완료</button>
+              <button type="button" data-v="미실시">미실시</button>
+            </div>
+          </div>
+
+          <div class="field">
+            <span class="field-label">통증 여부</span>
+            <div class="seg wrap" id="wo-pain" data-value="없음">
+              <button type="button" data-v="없음" class="on">없음</button>
+              <button type="button" data-v="무릎">무릎</button>
+              <button type="button" data-v="허리">허리</button>
+              <button type="button" data-v="발목">발목</button>
+              <button type="button" data-v="기타">기타</button>
+            </div>
+          </div>
+
+          <div class="field">
+            <span class="field-label">운동 후 상태</span>
+            <div class="seg" id="wo-after" data-value="보통">
+              <button type="button" data-v="좋음">좋음</button>
+              <button type="button" data-v="보통" class="on">보통</button>
+              <button type="button" data-v="피곤함">피곤함</button>
+            </div>
+          </div>
+
+          <label class="field">
+            <span class="field-label">메모</span>
+            <input type="text" id="wo-memo" class="input" placeholder="예: 중간에 2분 휴식">
+          </label>
+
+          <button type="submit" class="btn btn-primary btn-big btn-full">운동 저장</button>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2 class="card-title">오늘의 운동 기록</h2>
+        <div id="workout-today-list" class="record-list"></div>
+      </div>
+    </section>
+
+    <!-- ═══════════ 식사 기록 ═══════════ -->
+    <section id="view-meal" class="view" hidden>
+      <div class="card">
+        <h2 class="card-title">식사 기록하기</h2>
+        <form id="meal-form">
+          <div class="field">
+            <span class="field-label">식사 구분</span>
+            <div class="seg" id="me-slot" data-value="아침">
+              <button type="button" data-v="아침" class="on">아침</button>
+              <button type="button" data-v="점심">점심</button>
+              <button type="button" data-v="저녁">저녁</button>
+              <button type="button" data-v="간식">간식</button>
+            </div>
+          </div>
+
+          <label class="field">
+            <span class="field-label">음식명</span>
+            <input type="text" id="me-food" class="input" placeholder="예: 현미밥 반 공기, 제육볶음, 상추">
+          </label>
+
+          <div class="field">
+            <span class="field-label">양</span>
+            <div class="seg" id="me-amount" data-value="보통">
+              <button type="button" data-v="적게">적게</button>
+              <button type="button" data-v="보통" class="on">보통</button>
+              <button type="button" data-v="많이">많이</button>
+            </div>
+          </div>
+
+          <div class="field">
+            <span class="field-label">오늘 식사 체크</span>
+            <div class="toggle-grid">
+              <button type="button" class="toggle" id="me-veg">🥬 채소 포함</button>
+              <button type="button" class="toggle" id="me-protein">🥚 단백질 포함</button>
+              <button type="button" class="toggle" id="me-late">🌙 야식</button>
+              <button type="button" class="toggle" id="me-drink">🥤 탄산·술</button>
+            </div>
+          </div>
+
+          <div class="field">
+            <span class="field-label">포만감</span>
+            <div class="seg" id="me-full" data-value="적당">
+              <button type="button" data-v="부족">부족</button>
+              <button type="button" data-v="적당" class="on">적당</button>
+              <button type="button" data-v="과식">과식</button>
+            </div>
+          </div>
+
+          <label class="field">
+            <span class="field-label">메모</span>
+            <input type="text" id="me-memo" class="input" placeholder="선택 입력">
+          </label>
+
+          <button type="submit" class="btn btn-primary btn-big btn-full">식사 저장</button>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2 class="card-title">오늘의 식사 기록</h2>
+        <div id="meal-today-list" class="record-list"></div>
+      </div>
+    </section>
+
+    <!-- ═══════════ 건강 기록 ═══════════ -->
+    <section id="view-health" class="view" hidden>
+      <div class="card">
+        <h2 class="card-title">건강 기록하기</h2>
+        <p class="card-hint">매일 모두 기록할 필요는 없습니다. 잰 것만 입력하세요.</p>
+        <form id="health-form">
+          <div class="field-grid">
+            <label class="field">
+              <span class="field-label">체중(kg)</span>
+              <input type="number" id="he-weight" class="input" step="0.1" min="0" inputmode="decimal" placeholder="114.0">
+            </label>
+            <label class="field">
+              <span class="field-label">허리둘레(cm)</span>
+              <input type="number" id="he-waist" class="input" step="0.5" min="0" inputmode="decimal">
+            </label>
+          </div>
+
+          <div class="field-grid three">
+            <label class="field">
+              <span class="field-label">최고혈압</span>
+              <input type="number" id="he-sys" class="input" min="0" inputmode="numeric" placeholder="120">
+            </label>
+            <label class="field">
+              <span class="field-label">최저혈압</span>
+              <input type="number" id="he-dia" class="input" min="0" inputmode="numeric" placeholder="80">
+            </label>
+            <label class="field">
+              <span class="field-label">맥박</span>
+              <input type="number" id="he-pulse" class="input" min="0" inputmode="numeric" placeholder="70">
+            </label>
+          </div>
+          <div class="notice" id="bp-notice" hidden></div>
+
+          <div class="field-grid">
+            <label class="field">
+              <span class="field-label">걸음 수</span>
+              <input type="number" id="he-steps" class="input" min="0" inputmode="numeric" placeholder="스마트폰 수치">
+            </label>
+            <label class="field">
+              <span class="field-label">수면시간(시간)</span>
+              <input type="number" id="he-sleep" class="input" step="0.5" min="0" inputmode="decimal" placeholder="7">
+            </label>
+          </div>
+
+          <div class="field">
+            <span class="field-label">오늘 컨디션</span>
+            <div class="seg" id="he-condition" data-value="">
+              <button type="button" data-v="1">1</button>
+              <button type="button" data-v="2">2</button>
+              <button type="button" data-v="3">3</button>
+              <button type="button" data-v="4">4</button>
+              <button type="button" data-v="5">5</button>
+            </div>
+            <span class="field-hint">1 매우 나쁨 · 5 매우 좋음</span>
+          </div>
+
+          <label class="field">
+            <span class="field-label">메모</span>
+            <input type="text" id="he-memo" class="input" placeholder="선택 입력">
+          </label>
+
+          <button type="submit" class="btn btn-primary btn-big btn-full">건강 기록 저장</button>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2 class="card-title">최근 기록</h2>
+        <div id="health-recent-list" class="record-list"></div>
+      </div>
+    </section>
+
+    <!-- ═══════════ 주간 리포트 ═══════════ -->
+    <section id="view-report" class="view" hidden>
+      <div id="report-loading" class="card-hint center">리포트를 불러오는 중…</div>
+      <div id="report-body" hidden>
+        <div class="stat-grid" id="report-stats"></div>
+
+        <div class="card viz-root">
+          <h2 class="card-title">최근 12주 체중 추이 (kg)</h2>
+          <div class="chart-box"><canvas id="chart-weight"></canvas></div>
+        </div>
+
+        <div class="card viz-root">
+          <h2 class="card-title">주별 걷기 시간 (분)</h2>
+          <div class="chart-box"><canvas id="chart-walk"></canvas></div>
+        </div>
+
+        <div class="card viz-root">
+          <h2 class="card-title">이번 주 운동 달성률</h2>
+          <div class="donut-wrap">
+            <div class="chart-box donut"><canvas id="chart-achievement"></canvas></div>
+            <div class="donut-center" id="donut-center-label">0%</div>
+          </div>
+        </div>
+
+        <div class="card viz-root">
+          <h2 class="card-title">이번 주 식사 기록률 (%)</h2>
+          <div class="chart-box"><canvas id="chart-meal"></canvas></div>
+        </div>
+
+        <div class="card viz-root">
+          <h2 class="card-title">혈압 변화 (mmHg)</h2>
+          <div class="chart-box"><canvas id="chart-bp"></canvas></div>
+        </div>
+
+        <div class="disclaimer">
+          이 리포트는 기록 및 생활관리 참고용입니다. 혈압 등 수치가 계속 높거나
+          이상 증상이 있으면 의료기관 상담을 고려하세요.
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <nav class="bottom-nav">
+    <button class="nav-btn on" data-view="home"><span class="nav-icon">🏠</span>홈</button>
+    <button class="nav-btn" data-view="workout"><span class="nav-icon">🏃</span>운동</button>
+    <button class="nav-btn" data-view="meal"><span class="nav-icon">🍚</span>식사</button>
+    <button class="nav-btn" data-view="health"><span class="nav-icon">❤️</span>건강</button>
+    <button class="nav-btn" data-view="report"><span class="nav-icon">📊</span>리포트</button>
+  </nav>
+
+  <?!= include('JavaScript'); ?>
+</body>
+</html>

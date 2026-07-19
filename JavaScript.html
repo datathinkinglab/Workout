@@ -1,0 +1,661 @@
+<script>
+/* ───────────────────────── 서버 호출 래퍼 ─────────────────────────
+   Apps Script 안에서는 google.script.run 을 사용하고,
+   로컬 브라우저에서 미리보기할 때는 메모리 목데이터로 동작합니다. */
+var IS_LOCAL = (typeof google === 'undefined' || !google.script);
+
+function serverCall(fn) {
+  var args = Array.prototype.slice.call(arguments, 1);
+  if (IS_LOCAL) return MockServer.call(fn, args);
+  return new Promise(function (resolve, reject) {
+    var runner = google.script.run
+      .withSuccessHandler(resolve)
+      .withFailureHandler(reject);
+    runner[fn].apply(runner, args);
+  });
+}
+
+/* ───────────────────────── 상태 ───────────────────────── */
+var state = { data: null, view: 'home', report: null, charts: {} };
+
+function todayStr() {
+  var d = new Date();
+  return d.getFullYear() + '-' +
+    String(d.getMonth() + 1).padStart(2, '0') + '-' +
+    String(d.getDate()).padStart(2, '0');
+}
+
+function $(id) { return document.getElementById(id); }
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
+var toastTimer = null;
+function toast(msg) {
+  var t = $('toast');
+  t.textContent = msg;
+  t.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(function () { t.hidden = true; }, 2500);
+}
+
+function setBusy(on) { document.body.classList.toggle('busy', on); }
+
+/* ───────────────────────── 초기화 ───────────────────────── */
+window.addEventListener('load', function () {
+  bindNav();
+  bindSegments();
+  bindToggles();
+  bindForms();
+  refresh();
+  if (window.matchMedia) {
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function () {
+      if (state.view === 'report' && state.report) renderReport(state.report);
+    });
+  }
+});
+
+function refresh() {
+  setBusy(true);
+  serverCall('getAppData', todayStr())
+    .then(function (data) { state.data = data; renderAll(); })
+    .catch(function (e) { toast('불러오기 실패: ' + (e && e.message ? e.message : e)); })
+    .finally(function () { setBusy(false); });
+}
+
+/* ───────────────────────── 내비게이션 ───────────────────────── */
+function bindNav() {
+  document.querySelectorAll('.nav-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () { showView(btn.dataset.view); });
+  });
+  document.querySelectorAll('[data-goto]').forEach(function (btn) {
+    btn.addEventListener('click', function () { showView(btn.dataset.goto); });
+  });
+}
+
+function showView(name) {
+  state.view = name;
+  document.querySelectorAll('.view').forEach(function (v) {
+    v.hidden = (v.id !== 'view-' + name);
+  });
+  document.querySelectorAll('.nav-btn').forEach(function (b) {
+    b.classList.toggle('on', b.dataset.view === name);
+  });
+  window.scrollTo(0, 0);
+  if (name === 'report') loadReport();
+}
+
+/* ───────────────────────── 렌더링 ───────────────────────── */
+function renderAll() {
+  var d = state.data;
+  if (!d) return;
+
+  $('header-week').textContent =
+    d.week.totalWeeks + '주 중 ' + d.week.weekNum + '주차 · ' + d.week.dayNum + '일째 · ' +
+    d.today + ' (' + d.dayKo + ')';
+
+  // 홈: 달성률
+  $('home-achievement').textContent = d.achievement + '%';
+  $('home-progress-fill').style.width = d.achievement + '%';
+  $('home-meta').innerHTML =
+    '이번 주 운동 <b>' + d.weekWorkoutDays + '일째</b> · 연속 기록 <b>' + d.streak + '일째</b>' +
+    ' · 오늘 ' + d.doneItems + '/' + d.totalItems + ' 완료';
+
+  renderHomePlan();
+  renderHomeMeals();
+  renderWorkoutTypeOptions();
+  renderTodayWorkouts();
+  renderTodayMeals();
+  renderRecentHealth();
+}
+
+function planItemDetail(p) {
+  var parts = [];
+  if (p.목표시간) parts.push(p.목표시간 + '분');
+  if (p.목표횟수) parts.push(p.목표횟수 + '회' + (p.세트 ? ' × ' + p.세트 + '세트' : ''));
+  return parts.join(' · ');
+}
+
+function renderHomePlan() {
+  var d = state.data;
+  var box = $('home-plan-list');
+  if (!d.plan.length) {
+    box.innerHTML = '<div class="empty-hint">오늘은 계획된 운동이 없습니다. 편하게 쉬거나 가볍게 걸어보세요.</div>';
+    return;
+  }
+  box.innerHTML = '';
+  d.plan.forEach(function (p) {
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'check-item' + (p.완료 ? ' done' : '');
+    btn.innerHTML =
+      '<span class="check-box">✓</span>' +
+      '<span><span class="check-name">' + esc(p.운동종류) + '</span>' +
+      (planItemDetail(p) ? ' <span class="check-detail">' + esc(planItemDetail(p)) + '</span>' : '') +
+      (p.설명 ? '<div class="check-note">' + esc(p.설명) + '</div>' : '') +
+      '</span>';
+    btn.addEventListener('click', function () {
+      setBusy(true);
+      serverCall('quickToggleExercise', todayStr(), p.운동종류, !p.완료)
+        .then(function (data) {
+          state.data = data;
+          renderAll();
+          toast(!p.완료 ? '「' + p.운동종류 + '」 완료! 잘하셨어요 💪' : '체크를 해제했습니다');
+        })
+        .catch(function (e) { toast('저장 실패: ' + (e && e.message ? e.message : e)); })
+        .finally(function () { setBusy(false); });
+    });
+    box.appendChild(btn);
+  });
+}
+
+function renderHomeMeals() {
+  var d = state.data;
+  var box = $('home-meal-status');
+  box.innerHTML = '';
+  ['아침', '점심', '저녁'].forEach(function (slot) {
+    var done = d.mealDone[slot];
+    var chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'meal-chip' + (done ? ' done' : '');
+    chip.innerHTML = '<span class="mark">' + (done ? '✅' : '⬜') + '</span>' + slot;
+    chip.addEventListener('click', function () {
+      showView('meal');
+      setSeg('me-slot', slot);
+    });
+    box.appendChild(chip);
+  });
+}
+
+function renderWorkoutTypeOptions() {
+  var sel = $('wo-type');
+  var names = (state.data.planExerciseNames || []).slice();
+  ['걷기', '자전거', '수영'].forEach(function (n) {
+    if (names.indexOf(n) === -1) names.push(n);
+  });
+  var current = sel.value;
+  sel.innerHTML = names.map(function (n) {
+    return '<option value="' + esc(n) + '">' + esc(n) + '</option>';
+  }).join('') + '<option value="__custom__">직접 입력…</option>';
+  if (current) sel.value = current;
+  sel.onchange = function () {
+    $('wo-type-custom').hidden = (sel.value !== '__custom__');
+  };
+}
+
+function recordTags(r, keys) {
+  return keys.map(function (k) {
+    var v = r[k.key];
+    if (v === '' || v == null) return '';
+    if (k.showIf && !k.showIf(v)) return '';
+    return '<span class="r-tag">' + esc(k.format ? k.format(v) : v) + '</span>';
+  }).join('');
+}
+
+function renderTodayWorkouts() {
+  var box = $('workout-today-list');
+  var list = state.data.todayWorkouts;
+  if (!list.length) {
+    box.innerHTML = '<div class="empty-hint">아직 오늘 기록이 없습니다.</div>';
+    return;
+  }
+  box.innerHTML = list.map(function (r) {
+    var sub = [];
+    if (r['실제시간']) sub.push(r['실제시간'] + '분');
+    if (r['실제횟수']) sub.push(r['실제횟수'] + '회' + (r['세트'] ? ' × ' + r['세트'] + '세트' : ''));
+    return '<div class="record-item">' +
+      '<div class="r-title">' + esc(r['운동종류']) + ' <span class="r-sub">' + esc(r['완료여부']) + '</span></div>' +
+      (sub.length ? '<div class="r-sub">' + esc(sub.join(' · ')) + '</div>' : '') +
+      '<div class="r-tags">' +
+      recordTags(r, [
+        { key: '강도' },
+        { key: '통증부위', showIf: function (v) { return v !== '없음'; }, format: function (v) { return '통증: ' + v; } },
+        { key: '운동후상태' },
+        { key: '메모', showIf: function (v) { return v !== '빠른 체크'; } }
+      ]) +
+      '</div></div>';
+  }).join('');
+}
+
+function renderTodayMeals() {
+  var box = $('meal-today-list');
+  var list = state.data.todayMeals;
+  if (!list.length) {
+    box.innerHTML = '<div class="empty-hint">아직 오늘 기록이 없습니다.</div>';
+    return;
+  }
+  box.innerHTML = list.map(function (r) {
+    return '<div class="record-item">' +
+      '<div class="r-title">' + esc(r['식사구분']) + ' <span class="r-sub">' + esc(r['시간']) + '</span></div>' +
+      (r['음식명'] ? '<div class="r-sub">' + esc(r['음식명']) + '</div>' : '') +
+      '<div class="r-tags">' +
+      recordTags(r, [
+        { key: '식사량', format: function (v) { return '양: ' + v; } },
+        { key: '채소', showIf: function (v) { return v === '있음'; }, format: function () { return '채소 ✓'; } },
+        { key: '단백질', showIf: function (v) { return v === '있음'; }, format: function () { return '단백질 ✓'; } },
+        { key: '포만감', showIf: function (v) { return v !== '적당'; }, format: function (v) { return '포만감: ' + v; } },
+        { key: '야식', showIf: function (v) { return v === '예'; }, format: function () { return '야식'; } },
+        { key: '음료', showIf: function (v) { return v === '예'; }, format: function () { return '탄산·술'; } }
+      ]) +
+      '</div></div>';
+  }).join('');
+}
+
+function renderRecentHealth() {
+  var box = $('health-recent-list');
+  var list = state.data.recentHealth.slice(0, 7);
+  if (!list.length) {
+    box.innerHTML = '<div class="empty-hint">아직 기록이 없습니다. 체중부터 가볍게 시작해보세요.</div>';
+    return;
+  }
+  box.innerHTML = list.map(function (r) {
+    var sub = [];
+    if (r['체중']) sub.push('체중 ' + r['체중'] + 'kg');
+    if (r['최고혈압']) sub.push('혈압 ' + r['최고혈압'] + '/' + r['최저혈압'] + (r['맥박'] ? ' · 맥박 ' + r['맥박'] : ''));
+    if (r['걸음수']) sub.push('걸음 ' + Number(r['걸음수']).toLocaleString());
+    if (r['수면시간']) sub.push('수면 ' + r['수면시간'] + '시간');
+    if (r['컨디션']) sub.push('컨디션 ' + r['컨디션'] + '/5');
+    if (r['허리둘레']) sub.push('허리 ' + r['허리둘레'] + 'cm');
+    return '<div class="record-item">' +
+      '<div class="r-title">' + esc(r['날짜']) + '</div>' +
+      '<div class="r-sub">' + esc(sub.join(' · ') || '기록 없음') + '</div>' +
+      (r['메모'] ? '<div class="r-sub">' + esc(r['메모']) + '</div>' : '') +
+      '</div>';
+  }).join('');
+}
+
+/* ───────────────────────── 세그먼트/토글 컨트롤 ───────────────────────── */
+function bindSegments() {
+  document.querySelectorAll('.seg').forEach(function (seg) {
+    seg.querySelectorAll('button').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        seg.querySelectorAll('button').forEach(function (b) { b.classList.remove('on'); });
+        btn.classList.add('on');
+        seg.dataset.value = btn.dataset.v;
+      });
+    });
+  });
+}
+
+function setSeg(id, value) {
+  var seg = $(id);
+  seg.dataset.value = value;
+  seg.querySelectorAll('button').forEach(function (b) {
+    b.classList.toggle('on', b.dataset.v === value);
+  });
+}
+
+function bindToggles() {
+  document.querySelectorAll('.toggle').forEach(function (t) {
+    t.addEventListener('click', function () { t.classList.toggle('on'); });
+  });
+}
+
+/* ───────────────────────── 폼 제출 ───────────────────────── */
+function bindForms() {
+  $('workout-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var type = $('wo-type').value === '__custom__'
+      ? $('wo-type-custom').value.trim()
+      : $('wo-type').value;
+    if (!type) { toast('운동 종류를 입력해주세요'); return; }
+    submitRecord('saveWorkout', {
+      날짜: todayStr(),
+      운동종류: type,
+      목표시간: $('wo-target-min').value,
+      실제시간: $('wo-actual-min').value,
+      목표횟수: $('wo-target-reps').value,
+      실제횟수: $('wo-actual-reps').value,
+      세트: $('wo-sets').value,
+      강도: $('wo-intensity').dataset.value,
+      완료여부: $('wo-done').dataset.value,
+      통증부위: $('wo-pain').dataset.value,
+      운동후상태: $('wo-after').dataset.value,
+      메모: $('wo-memo').value.trim()
+    }, '운동을 저장했습니다 💪', function () {
+      ['wo-target-min', 'wo-actual-min', 'wo-target-reps', 'wo-actual-reps', 'wo-sets', 'wo-memo', 'wo-type-custom']
+        .forEach(function (id) { $(id).value = ''; });
+    });
+  });
+
+  $('meal-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    submitRecord('saveMeal', {
+      날짜: todayStr(),
+      식사구분: $('me-slot').dataset.value,
+      음식명: $('me-food').value.trim(),
+      식사량: $('me-amount').dataset.value,
+      채소: $('me-veg').classList.contains('on') ? '있음' : '없음',
+      단백질: $('me-protein').classList.contains('on') ? '있음' : '없음',
+      포만감: $('me-full').dataset.value,
+      야식: $('me-late').classList.contains('on') ? '예' : '아니오',
+      음료: $('me-drink').classList.contains('on') ? '예' : '아니오',
+      메모: $('me-memo').value.trim()
+    }, '식사를 기록했습니다 🍚', function () {
+      $('me-food').value = '';
+      $('me-memo').value = '';
+      ['me-veg', 'me-protein', 'me-late', 'me-drink'].forEach(function (id) {
+        $(id).classList.remove('on');
+      });
+      setSeg('me-full', '적당');
+    });
+  });
+
+  $('health-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var sys = parseFloat($('he-sys').value);
+    var dia = parseFloat($('he-dia').value);
+    if (($('he-sys').value === '') !== ($('he-dia').value === '')) {
+      toast('혈압은 최고·최저를 함께 입력해주세요');
+      return;
+    }
+    var hasAny = ['he-weight', 'he-waist', 'he-sys', 'he-steps', 'he-sleep', 'he-memo']
+      .some(function (id) { return $(id).value !== ''; }) || $('he-condition').dataset.value;
+    if (!hasAny) { toast('입력된 값이 없습니다'); return; }
+
+    submitRecord('saveHealth', {
+      날짜: todayStr(),
+      체중: $('he-weight').value,
+      최고혈압: $('he-sys').value,
+      최저혈압: $('he-dia').value,
+      맥박: $('he-pulse').value,
+      걸음수: $('he-steps').value,
+      수면시간: $('he-sleep').value,
+      컨디션: $('he-condition').dataset.value,
+      허리둘레: $('he-waist').value,
+      메모: $('he-memo').value.trim()
+    }, '건강 기록을 저장했습니다 ❤️', function () {
+      ['he-weight', 'he-waist', 'he-sys', 'he-dia', 'he-pulse', 'he-steps', 'he-sleep', 'he-memo']
+        .forEach(function (id) { $(id).value = ''; });
+      setSeg('he-condition', '');
+      showBpNotice(sys, dia);
+    });
+  });
+}
+
+function submitRecord(fn, payload, okMsg, onDone) {
+  setBusy(true);
+  serverCall(fn, payload)
+    .then(function (data) {
+      state.data = data;
+      renderAll();
+      state.report = null; // 리포트 캐시 무효화
+      toast(okMsg);
+      if (onDone) onDone();
+    })
+    .catch(function (e) { toast('저장 실패: ' + (e && e.message ? e.message : e)); })
+    .finally(function () { setBusy(false); });
+}
+
+/* 진단이 아닌 안내만 표시한다 */
+function showBpNotice(sys, dia) {
+  var box = $('bp-notice');
+  if (!sys || !dia) { box.hidden = true; return; }
+  if (sys >= 180 || dia >= 120) {
+    box.textContent = '혈압이 많이 높게 측정되었습니다. 잠시 휴식 후 다시 측정하고, 높은 수치가 지속되거나 이상 증상이 있으면 즉시 의료기관에 연락하세요.';
+    box.hidden = false;
+  } else if (sys >= 140 || dia >= 90) {
+    box.textContent = '혈압이 다소 높게 측정되었습니다. 휴식 후 다시 측정하고, 이런 수치가 반복되면 의료기관 상담을 고려하세요.';
+    box.hidden = false;
+  } else {
+    box.hidden = true;
+  }
+}
+
+/* ───────────────────────── 리포트 ───────────────────────── */
+function loadReport() {
+  if (state.report) { renderReport(state.report); return; }
+  $('report-loading').hidden = false;
+  $('report-body').hidden = true;
+  serverCall('getReportData')
+    .then(function (rep) {
+      state.report = rep;
+      renderReport(rep);
+    })
+    .catch(function (e) {
+      $('report-loading').textContent = '리포트 불러오기 실패: ' + (e && e.message ? e.message : e);
+    });
+}
+
+function cssVar(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+function destroyCharts() {
+  Object.keys(state.charts).forEach(function (k) {
+    state.charts[k].destroy();
+  });
+  state.charts = {};
+}
+
+function renderReport(rep) {
+  $('report-loading').hidden = true;
+  $('report-body').hidden = false;
+  renderReportStats(rep);
+  if (typeof Chart === 'undefined') return; // CDN 차단 시 수치 카드만 표시
+
+  destroyCharts();
+  var ink = cssVar('--text-muted');
+  var grid = cssVar('--grid');
+  var s1 = cssVar('--series-1');
+  var s2 = cssVar('--series-2');
+
+  Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
+  Chart.defaults.font.size = 12;
+  Chart.defaults.color = ink;
+
+  var baseScales = {
+    x: { grid: { display: false }, ticks: { maxTicksLimit: 6 } },
+    y: { grid: { color: grid }, border: { display: false }, beginAtZero: false }
+  };
+
+  // 체중 추이 (선)
+  state.charts.weight = new Chart($('chart-weight'), {
+    type: 'line',
+    data: {
+      labels: rep.weekLabels,
+      datasets: [{
+        label: '체중',
+        data: rep.weightSeries,
+        borderColor: s1,
+        backgroundColor: s1,
+        borderWidth: 2,
+        pointRadius: 4,
+        spanGaps: true,
+        tension: 0.25
+      }]
+    },
+    options: {
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: baseScales
+    }
+  });
+
+  // 주별 걷기 시간 (막대)
+  state.charts.walk = new Chart($('chart-walk'), {
+    type: 'bar',
+    data: {
+      labels: rep.weekLabels,
+      datasets: [{
+        label: '걷기(분)',
+        data: rep.walkSeries,
+        backgroundColor: s1,
+        borderRadius: 4,
+        maxBarThickness: 22
+      }]
+    },
+    options: {
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: baseScales.x,
+        y: { grid: { color: grid }, border: { display: false }, beginAtZero: true }
+      }
+    }
+  });
+
+  // 이번 주 달성률 (도넛)
+  var ach = rep.weekAchievement;
+  $('donut-center-label').textContent = ach + '%';
+  state.charts.achieve = new Chart($('chart-achievement'), {
+    type: 'doughnut',
+    data: {
+      labels: ['달성', '남은 목표'],
+      datasets: [{
+        data: [ach, Math.max(0, 100 - ach)],
+        backgroundColor: [s1, grid],
+        borderWidth: 2,
+        borderColor: cssVar('--surface')
+      }]
+    },
+    options: {
+      maintainAspectRatio: false,
+      cutout: '72%',
+      plugins: { legend: { display: false }, tooltip: { enabled: false } }
+    }
+  });
+
+  // 식사 기록률 (막대)
+  state.charts.meal = new Chart($('chart-meal'), {
+    type: 'bar',
+    data: {
+      labels: ['아침', '점심', '저녁'],
+      datasets: [{
+        label: '기록률(%)',
+        data: [rep.mealRate['아침'], rep.mealRate['점심'], rep.mealRate['저녁']],
+        backgroundColor: s1,
+        borderRadius: 4,
+        maxBarThickness: 48
+      }]
+    },
+    options: {
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { display: false } },
+        y: { grid: { color: grid }, border: { display: false }, beginAtZero: true, max: 100 }
+      }
+    }
+  });
+
+  // 혈압 (선 2계열 → 범례 표시)
+  state.charts.bp = new Chart($('chart-bp'), {
+    type: 'line',
+    data: {
+      labels: rep.bp.labels,
+      datasets: [
+        {
+          label: '최고혈압',
+          data: rep.bp.sys,
+          borderColor: s1, backgroundColor: s1,
+          borderWidth: 2, pointRadius: 4, tension: 0.25
+        },
+        {
+          label: '최저혈압',
+          data: rep.bp.dia,
+          borderColor: s2, backgroundColor: s2,
+          borderWidth: 2, pointRadius: 4, tension: 0.25
+        }
+      ]
+    },
+    options: {
+      maintainAspectRatio: false,
+      plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, boxHeight: 12 } } },
+      scales: baseScales
+    }
+  });
+}
+
+function renderReportStats(rep) {
+  var s = rep.summary;
+  var change = s.체중변화;
+  var changeHtml = (change == null) ? '—'
+    : (change <= 0 ? '<span class="stat-delta-down">' + change + '<small> kg</small></span>'
+      : '+' + change + '<small> kg</small>');
+  var tiles = [
+    { label: '이번 주 운동일수', value: s.운동일수 + '<small>일</small>' },
+    { label: '이번 주 걷기 시간', value: (s.걷기시간 || 0) + '<small>분</small>' },
+    { label: '근력운동 수행', value: s.근력횟수 + '<small>회</small>' },
+    { label: '식사 기록률', value: (isNaN(s.식사기록률) ? 0 : s.식사기록률) + '<small>%</small>' },
+    { label: '체중 변화 (시작 대비)', value: changeHtml },
+    { label: '평균 혈압 (이번 주)', value: s.평균혈압 ? esc(s.평균혈압) : '—' },
+    { label: '연속 실천일', value: rep.streak + '<small>일</small>' },
+    { label: '현재 체중', value: rep.latestWeight != null ? rep.latestWeight + '<small> kg</small>' : '—' }
+  ];
+  $('report-stats').innerHTML = tiles.map(function (t) {
+    return '<div class="stat-tile"><div class="stat-label">' + t.label + '</div>' +
+      '<div class="stat-value">' + t.value + '</div></div>';
+  }).join('');
+}
+
+/* ───────────────────────── 로컬 미리보기용 목데이터 ─────────────────────────
+   Apps Script 배포 없이 브라우저에서 화면을 확인할 때만 동작합니다. */
+var MockServer = (function () {
+  function mkData() {
+    return {
+      today: todayStr(),
+      dayKo: ['일', '월', '화', '수', '목', '금', '토'][new Date().getDay()],
+      settings: { 사용자명: '사용자', 시작체중: 114, 목표체중: 108, 키: 176, 시작일: todayStr() },
+      week: { weekNum: 1, dayNum: 4, totalWeeks: 12 },
+      plan: [
+        { 운동종류: '평지 걷기', 목표시간: 20, 목표횟수: '', 세트: '', 설명: '대화가 가능한 속도로', 완료: mock.walk },
+        { 운동종류: '의자 앉았다 일어나기', 목표시간: '', 목표횟수: 10, 세트: 2, 설명: '천천히', 완료: true },
+        { 운동종류: '뒤꿈치 들기', 목표시간: '', 목표횟수: 10, 세트: 2, 설명: '벽 잡고', 완료: false },
+        { 운동종류: '스트레칭', 목표시간: 5, 목표횟수: '', 세트: '', 설명: '', 완료: false }
+      ],
+      todayWorkouts: mock.workouts,
+      todayMeals: mock.meals,
+      mealDone: {
+        아침: mock.meals.some(function (m) { return m['식사구분'] === '아침'; }),
+        점심: mock.meals.some(function (m) { return m['식사구분'] === '점심'; }),
+        저녁: mock.meals.some(function (m) { return m['식사구분'] === '저녁'; })
+      },
+      achievement: 43, doneItems: 3, totalItems: 7,
+      streak: 4, weekWorkoutDays: 3,
+      recentHealth: mock.health.slice().reverse(),
+      planExerciseNames: ['평지 걷기', '의자 앉았다 일어나기', '뒤꿈치 들기', '앉아서 무릎 펴기', '벽 밀기', '스트레칭']
+    };
+  }
+  var mock = {
+    walk: false,
+    workouts: [{ 운동종류: '의자 앉았다 일어나기', 완료여부: '완료', 실제횟수: 10, 세트: 2, 강도: '적당함', 통증부위: '없음', 운동후상태: '좋음', 메모: '' }],
+    meals: [{ 식사구분: '아침', 시간: '08:10', 음식명: '현미밥 반 공기, 계란국', 식사량: '보통', 채소: '있음', 단백질: '있음', 포만감: '적당', 야식: '아니오', 음료: '아니오' }],
+    health: [{ 날짜: todayStr(), 체중: 113.4, 최고혈압: 132, 최저혈압: 86, 맥박: 72, 걸음수: 4200, 수면시간: 7, 컨디션: 4, 허리둘레: '', 메모: '' }]
+  };
+  return {
+    call: function (fn, args) {
+      return new Promise(function (resolve) {
+        setTimeout(function () {
+          if (fn === 'getAppData') resolve(mkData());
+          else if (fn === 'quickToggleExercise') { mock.walk = args[2]; resolve(mkData()); }
+          else if (fn === 'saveWorkout') { mock.workouts.push(args[0]); resolve(mkData()); }
+          else if (fn === 'saveMeal') { args[0].시간 = '12:30'; mock.meals.push(args[0]); resolve(mkData()); }
+          else if (fn === 'saveHealth') { mock.health.push(args[0]); resolve(mkData()); }
+          else if (fn === 'getReportData') {
+            resolve({
+              weekLabels: ['4/27', '5/4', '5/11', '5/18', '5/25', '6/1', '6/8', '6/15', '6/22', '6/29', '7/6', '7/13'],
+              weightSeries: [114, 113.8, 113.9, 113.2, 112.8, 112.9, 112.4, 112.0, 111.8, 111.2, 111.0, 110.6],
+              walkSeries: [30, 45, 60, 80, 90, 100, 110, 100, 120, 130, 120, 60],
+              weekAchievement: 62,
+              mealRate: { 아침: 80, 점심: 100, 저녁: 60 },
+              bp: {
+                labels: ['7/1', '7/3', '7/5', '7/8', '7/10', '7/13', '7/15', '7/17'],
+                sys: [138, 135, 140, 133, 131, 134, 130, 132],
+                dia: [90, 88, 92, 86, 85, 87, 84, 86]
+              },
+              summary: { 운동일수: 3, 걷기시간: 60, 근력횟수: 4, 식사기록률: 76, 체중변화: -3.4, 평균혈압: '132/86' },
+              streak: 4,
+              latestWeight: 110.6,
+              settings: { 시작체중: 114 }
+            });
+          }
+          else resolve(null);
+        }, 150);
+      });
+    }
+  };
+})();
+</script>
