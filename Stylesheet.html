@@ -255,7 +255,45 @@ select.input { appearance: none; }
 .nav-btn .nav-icon { font-size: 21px; }
 .nav-btn.on { color: var(--primary); }
 
+/* ─── 코치 카드 (격려/조정 제안) ────────────────────────────── */
+.coach-card { border-left: 4px solid var(--series-1); }
+.coach-message { font-size: 15px; line-height: 1.6; }
+.coach-btn { margin-top: 10px; min-height: 48px; font-weight: 700; }
+
+/* ─── 지난 식사 불러오기 ────────────────────────────────────── */
+.btn-outline { border: 1.5px solid var(--primary); color: var(--primary); background: var(--surface); }
+.history-btn { margin-bottom: 12px; min-height: 48px; font-size: 16px; }
+.history-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+.history-item {
+  width: 100%; text-align: left; font: inherit;
+  border: 1px solid var(--border); border-radius: 12px;
+  background: var(--page); color: var(--text-primary);
+  padding: 11px 13px; cursor: pointer; min-height: 52px;
+}
+.history-item .h-title { font-weight: 700; font-size: 15px; }
+.history-item .h-sub { font-size: 13px; color: var(--text-muted); margin-top: 2px; }
+
+/* ─── 식사 사진 ─────────────────────────────────────────────── */
+.photo-row { display: flex; align-items: center; gap: 10px; }
+.photo-btn { min-height: 52px; padding: 12px 16px; font-size: 16px; }
+.photo-preview {
+  width: 64px; height: 64px; object-fit: cover;
+  border-radius: 10px; border: 1px solid var(--border);
+}
+.photo-remove { min-height: 44px; padding: 8px 12px; font-size: 14px; color: var(--text-secondary); }
+
+/* ─── 리포트 모드 토글 ──────────────────────────────────────── */
+.report-mode { margin-bottom: 2px; }
+
 /* 저장 중 표시 */
 body.busy { cursor: progress; }
 body.busy .btn, body.busy .check-item { opacity: .6; pointer-events: none; }
+
+/* ─── 인쇄(PDF 저장) ───────────────────────────────────────── */
+@media print {
+  body { background: #fff; padding-bottom: 0; }
+  .bottom-nav, .app-header, #report-print, #report-mode, .toast, .quick-buttons { display: none !important; }
+  .card, .stat-tile { break-inside: avoid; box-shadow: none; }
+  #main { max-width: none; }
+}
 </style>

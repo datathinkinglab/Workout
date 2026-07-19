@@ -24,6 +24,13 @@
         <div class="progress-meta" id="home-meta"></div>
       </div>
 
+      <div class="card coach-card" id="coach-card" hidden>
+        <div class="coach-message" id="coach-message"></div>
+        <button type="button" class="btn btn-full coach-btn" id="coach-adjust-btn" hidden>
+          다음 주 운동 살짝 줄이기
+        </button>
+      </div>
+
       <div class="card">
         <h2 class="card-title">오늘의 운동</h2>
         <div id="home-plan-list" class="check-list"></div>
@@ -140,6 +147,8 @@
     <section id="view-meal" class="view" hidden>
       <div class="card">
         <h2 class="card-title">식사 기록하기</h2>
+        <button type="button" class="btn btn-outline btn-full history-btn" id="me-history-btn">🕘 지난 식사 불러오기</button>
+        <div id="me-history" class="history-list" hidden></div>
         <form id="meal-form">
           <div class="field">
             <span class="field-label">식사 구분</span>
@@ -182,6 +191,17 @@
               <button type="button" data-v="적당" class="on">적당</button>
               <button type="button" data-v="과식">과식</button>
             </div>
+          </div>
+
+          <div class="field">
+            <span class="field-label">식사 사진 (선택)</span>
+            <div class="photo-row">
+              <button type="button" class="btn photo-btn" id="me-photo-btn">📷 사진 추가</button>
+              <img id="me-photo-preview" class="photo-preview" alt="식사 사진 미리보기" hidden>
+              <button type="button" class="btn photo-remove" id="me-photo-remove" hidden>✕ 삭제</button>
+            </div>
+            <input type="file" id="me-photo" accept="image/*" capture="environment" hidden>
+            <span class="field-hint">사진은 내 Google Drive의 '오늘도 생존운동 사진' 폴더에 저장됩니다.</span>
           </div>
 
           <label class="field">
@@ -272,6 +292,10 @@
 
     <!-- ═══════════ 주간 리포트 ═══════════ -->
     <section id="view-report" class="view" hidden>
+      <div class="seg report-mode" id="report-mode" data-value="week">
+        <button type="button" data-v="week" class="on">주간 리포트</button>
+        <button type="button" data-v="month">월간 리포트</button>
+      </div>
       <div id="report-loading" class="card-hint center">리포트를 불러오는 중…</div>
       <div id="report-body" hidden>
         <div class="stat-grid" id="report-stats"></div>
@@ -287,7 +311,7 @@
         </div>
 
         <div class="card viz-root">
-          <h2 class="card-title">이번 주 운동 달성률</h2>
+          <h2 class="card-title" id="title-achievement">이번 주 운동 달성률</h2>
           <div class="donut-wrap">
             <div class="chart-box donut"><canvas id="chart-achievement"></canvas></div>
             <div class="donut-center" id="donut-center-label">0%</div>
@@ -295,7 +319,7 @@
         </div>
 
         <div class="card viz-root">
-          <h2 class="card-title">이번 주 식사 기록률 (%)</h2>
+          <h2 class="card-title" id="title-meal">이번 주 식사 기록률 (%)</h2>
           <div class="chart-box"><canvas id="chart-meal"></canvas></div>
         </div>
 
@@ -303,6 +327,10 @@
           <h2 class="card-title">혈압 변화 (mmHg)</h2>
           <div class="chart-box"><canvas id="chart-bp"></canvas></div>
         </div>
+
+        <button type="button" class="btn btn-big btn-full btn-outline" id="report-print">
+          🖨️ PDF로 저장 (브라우저 인쇄 → PDF)
+        </button>
 
         <div class="disclaimer">
           이 리포트는 기록 및 생활관리 참고용입니다. 혈압 등 수치가 계속 높거나

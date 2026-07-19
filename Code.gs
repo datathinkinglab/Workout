@@ -258,7 +258,8 @@ function getAppData(dateStr) {
   var todayWorkouts = allWorkouts.filter(function (r) { return r['날짜'] === date; });
   var todayMeals = allMeals.filter(function (r) { return r['날짜'] === date; });
 
-  var plan = getPlanFor_(week.weekNum, dayKo).map(function (p) {
+  var planRows = readRecords_(SHEETS.PLAN);
+  var plan = getPlanFor_(week.weekNum, dayKo, planRows).map(function (p) {
     var done = todayWorkouts.some(function (w) {
       return w['운동종류'] === p['운동종류'] && w['완료여부'] && w['완료여부'] !== '미실시';
     });
@@ -297,16 +298,104 @@ function getAppData(dateStr) {
     streak: computeStreak_(allWorkouts, allMeals, allHealth, date),
     weekWorkoutDays: computeWeekWorkoutDays_(allWorkouts, date),
     recentHealth: allHealth.slice(-30).reverse(),
-    planExerciseNames: uniqueExerciseNames_()
+    planExerciseNames: uniqueExerciseNames_(planRows),
+    advice: computeAdvice_(settings, date, allWorkouts, allMeals, planRows)
   };
 }
 
-function uniqueExerciseNames_() {
+function uniqueExerciseNames_(planRows) {
   var names = {};
-  readRecords_(SHEETS.PLAN).forEach(function (r) {
+  (planRows || readRecords_(SHEETS.PLAN)).forEach(function (r) {
     if (r['운동종류']) names[r['운동종류']] = true;
   });
   return Object.keys(names);
+}
+
+// ---------------------------------------------------------------- 코칭/자동 조정
+
+/**
+ * 최근 7일의 통증·실천율을 보고 안내 메시지를 만든다.
+ * 진단이 아니라 격려와 "줄여보기" 제안만 한다. 운동을 강제로 금지하지 않는다.
+ */
+function computeAdvice_(settings, dateStr, allWorkouts, allMeals, planRows) {
+  var end = parseDate_(dateStr);
+  var start = new Date(end.getTime() - 6 * 86400000);
+  var startDay = parseDate_(settings.시작일);
+
+  var painCount = 0;
+  allWorkouts.forEach(function (r) {
+    var d = parseDate_(r['날짜']);
+    if (!d || d < start || d > end) return;
+    if (r['통증부위'] && r['통증부위'] !== '없음') painCount++;
+  });
+
+  var sum = 0, n = 0;
+  for (var d = new Date(start.getTime()); d <= end; d = new Date(d.getTime() + 86400000)) {
+    if (startDay && d < startDay) continue;
+    sum += computeDayAchievement_(settings, fmtDate_(d), allWorkouts, allMeals, planRows);
+    n++;
+  }
+  var rate = n ? Math.round(sum / n) : 0;
+
+  var week = getWeekInfo_(settings, dateStr);
+  var adjusted = nextWeekAdjusted_(week.weekNum, planRows);
+
+  if (painCount >= 2) {
+    return {
+      type: 'easier', canAdjust: !adjusted, adjusted: adjusted,
+      message: '최근 7일 동안 통증 기록이 ' + painCount + '회 있었어요. 다음 주 운동량을 조금 줄여보는 건 어떨까요? 통증이 계속되면 의료기관 상담을 고려하세요.'
+    };
+  }
+  if (n >= 3 && rate < 40) {
+    return {
+      type: 'easier', canAdjust: !adjusted, adjusted: adjusted,
+      message: '최근 실천율이 ' + rate + '%예요. 괜찮아요 — 목표를 잠깐 낮추면 다시 이어가기가 훨씬 쉬워져요.'
+    };
+  }
+  if (n >= 3 && rate >= 80 && painCount === 0) {
+    return {
+      type: 'praise', canAdjust: false, adjusted: false,
+      message: '최근 실천율 ' + rate + '% · 통증 없이 잘 진행 중이에요. 지금 페이스 그대로! 💪'
+    };
+  }
+  return null;
+}
+
+function nextWeekAdjusted_(weekNum, planRows) {
+  var target = Math.min(weekNum + 1, TOTAL_WEEKS);
+  return (planRows || readRecords_(SHEETS.PLAN)).some(function (r) {
+    return Number(r['주차']) === target && String(r['설명']).indexOf('자동 조정') !== -1;
+  });
+}
+
+/**
+ * 다음 주 운동계획의 목표시간·목표횟수를 20% 줄인다 (최소 5).
+ * 이미 조정된 주차는 다시 줄이지 않는다. 늘리는 방향의 자동 조정은 하지 않는다.
+ */
+function applyEasierNextWeek() {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    var settings = getSettings_();
+    var week = getWeekInfo_(settings, todayStr_());
+    var target = Math.min(week.weekNum + 1, TOTAL_WEEKS);
+    if (!nextWeekAdjusted_(week.weekNum, null)) {
+      var sh = getSheet_(SHEETS.PLAN);
+      var values = sh.getDataRange().getValues();
+      for (var i = 1; i < values.length; i++) {
+        if (Number(values[i][0]) !== target) continue;
+        var t = parseFloat(values[i][3]);
+        if (!isNaN(t) && t > 0) values[i][3] = Math.max(5, Math.round(t * 0.8));
+        var reps = parseFloat(values[i][4]);
+        if (!isNaN(reps) && reps > 0) values[i][4] = Math.max(5, Math.round(reps * 0.8));
+        values[i][6] = (values[i][6] ? values[i][6] + ' ' : '') + '(자동 조정됨)';
+      }
+      sh.getRange(1, 1, values.length, values[0].length).setValues(values);
+    }
+  } finally {
+    lock.releaseLock();
+  }
+  return getAppData(todayStr_());
 }
 
 /** 기록이 하나라도 있는 날을 실천일로 보고 연속 일수를 계산 */
@@ -368,8 +457,37 @@ function saveWorkout(rec) {
   return getAppData(date);
 }
 
+/** 식사 사진 저장용 Drive 폴더 (없으면 생성, ID는 스크립트 속성에 캐시) */
+function getPhotoFolder_() {
+  var props = PropertiesService.getScriptProperties();
+  var id = props.getProperty('PHOTO_FOLDER_ID');
+  if (id) {
+    try { return DriveApp.getFolderById(id); } catch (e) { /* 폴더 삭제됨 → 재생성 */ }
+  }
+  var name = '오늘도 생존운동 사진';
+  var it = DriveApp.getFoldersByName(name);
+  var folder = it.hasNext() ? it.next() : DriveApp.createFolder(name);
+  props.setProperty('PHOTO_FOLDER_ID', folder.getId());
+  return folder;
+}
+
 function saveMeal(rec) {
   var date = rec.날짜 && parseDate_(rec.날짜) ? rec.날짜 : todayStr_();
+
+  var photoUrl = rec.사진URL || '';
+  if (rec.사진Base64) {
+    try {
+      var blob = Utilities.newBlob(
+        Utilities.base64Decode(rec.사진Base64),
+        rec.사진Mime || 'image/jpeg',
+        '식사_' + date + '_' + (rec.식사구분 || '') + '_' + Utilities.formatDate(new Date(), tz_(), 'HHmmss') + '.jpg'
+      );
+      photoUrl = getPhotoFolder_().createFile(blob).getUrl();
+    } catch (e) {
+      photoUrl = ''; // 사진 저장 실패해도 식사 기록은 계속 저장
+    }
+  }
+
   appendRecord_(SHEETS.MEAL, {
     기록ID: newId_('M'),
     날짜: date,
@@ -382,10 +500,36 @@ function saveMeal(rec) {
     포만감: rec.포만감 || '적당',
     야식: rec.야식 || '아니오',
     음료: rec.음료 || '아니오',
-    사진URL: rec.사진URL || '',
+    사진URL: photoUrl,
     메모: rec.메모 || ''
   });
   return getAppData(date);
+}
+
+/** 지난 식사 불러오기: 최근 기록에서 (식사구분+음식명) 중복 없이 최대 12개 */
+function getRecentMealPresets() {
+  var meals = readRecords_(SHEETS.MEAL);
+  var seen = {};
+  var out = [];
+  for (var i = meals.length - 1; i >= 0 && out.length < 12; i--) {
+    var m = meals[i];
+    if (!m['음식명']) continue;
+    var key = m['식사구분'] + '|' + m['음식명'];
+    if (seen[key]) continue;
+    seen[key] = true;
+    out.push({
+      식사구분: m['식사구분'],
+      음식명: m['음식명'],
+      식사량: m['식사량'],
+      채소: m['채소'],
+      단백질: m['단백질'],
+      포만감: m['포만감'],
+      야식: m['야식'],
+      음료: m['음료'],
+      날짜: m['날짜']
+    });
+  }
+  return out;
 }
 
 function saveHealth(rec) {
@@ -455,8 +599,10 @@ function quickToggleExercise(dateStr, exerciseName, done) {
 
 // ---------------------------------------------------------------- 주간 리포트
 
-function getReportData() {
+/** mode: 'week'(기본, 월요일부터) 또는 'month'(1일부터) */
+function getReportData(mode) {
   ensureSheets_();
+  mode = mode === 'month' ? 'month' : 'week';
   var today = todayStr_();
   var settings = getSettings_();
   var allWorkouts = readRecords_(SHEETS.WORKOUT);
@@ -466,6 +612,9 @@ function getReportData() {
 
   var mon = mondayOf_(today);
   var todayD = parseDate_(today);
+  var periodStart = mode === 'month'
+    ? new Date(todayD.getFullYear(), todayD.getMonth(), 1, 12, 0, 0)
+    : mon;
 
   // ---- 최근 12주 축 (월요일 기준)
   var weekStarts = [];
@@ -510,16 +659,16 @@ function getReportData() {
     if (idx >= 0) walkSeries[idx] += minutes;
   });
 
-  // ---- 이번 주 일별 달성률 → 평균
+  // ---- 기간(주/월) 일별 달성률 → 평균
   var dayAchievements = [];
-  for (var d = new Date(mon.getTime()); d <= todayD; d = new Date(d.getTime() + 86400000)) {
+  for (var d = new Date(periodStart.getTime()); d <= todayD; d = new Date(d.getTime() + 86400000)) {
     dayAchievements.push(computeDayAchievement_(settings, fmtDate_(d), allWorkouts, allMeals, planRows));
   }
-  var weekAchievement = dayAchievements.length
+  var periodAchievement = dayAchievements.length
     ? Math.round(dayAchievements.reduce(function (a, b) { return a + b; }, 0) / dayAchievements.length)
     : 0;
 
-  // ---- 이번 주 식사 기록률 (아침/점심/저녁, 경과일 기준)
+  // ---- 기간 식사 기록률 (아침/점심/저녁, 경과일 기준)
   var elapsedDays = dayAchievements.length || 1;
   var mealRate = {};
   ['아침', '점심', '저녁'].forEach(function (slot) {
@@ -527,7 +676,7 @@ function getReportData() {
     allMeals.forEach(function (m) {
       if (m['식사구분'] !== slot) return;
       var md = parseDate_(m['날짜']);
-      if (md && md >= mon && md <= todayD) days[m['날짜']] = true;
+      if (md && md >= periodStart && md <= todayD) days[m['날짜']] = true;
     });
     mealRate[slot] = Math.round((Object.keys(days).length / elapsedDays) * 100);
   });
@@ -545,23 +694,27 @@ function getReportData() {
     dia: bpRecords.map(function (r) { return parseFloat(r['최저혈압']); })
   };
 
-  // ---- 이번 주 요약 수치
+  // ---- 기간 요약 수치
   var weekMeals = allMeals.filter(function (m) {
     var md = parseDate_(m['날짜']);
-    return md && md >= mon && md <= todayD;
+    return md && md >= periodStart && md <= todayD;
   });
   var strengthCount = 0;
+  var periodWalk = 0;
   allWorkouts.forEach(function (r) {
     var d3 = parseDate_(r['날짜']);
-    if (!d3 || d3 < mon || d3 > todayD) return;
-    if (String(r['운동종류']).indexOf('걷') !== -1) return;
-    if (r['운동종류'] === '스트레칭') return;
+    if (!d3 || d3 < periodStart || d3 > todayD) return;
     if (r['완료여부'] === '미실시') return;
+    if (String(r['운동종류']).indexOf('걷') !== -1) {
+      periodWalk += parseFloat(r['실제시간']) || 0;
+      return;
+    }
+    if (r['운동종류'] === '스트레칭') return;
     strengthCount++;
   });
   var weekBp = allHealth.filter(function (r) {
     var d4 = parseDate_(r['날짜']);
-    return d4 && d4 >= mon && d4 <= todayD && parseFloat(r['최고혈압']);
+    return d4 && d4 >= periodStart && d4 <= todayD && parseFloat(r['최고혈압']);
   });
   var avgSys = weekBp.length ? Math.round(weekBp.reduce(function (a, r) { return a + parseFloat(r['최고혈압']); }, 0) / weekBp.length) : null;
   var avgDia = weekBp.length ? Math.round(weekBp.reduce(function (a, r) { return a + parseFloat(r['최저혈압'] || 0); }, 0) / weekBp.length) : null;
@@ -577,16 +730,24 @@ function getReportData() {
     return ['아침', '점심', '저녁'].indexOf(m['식사구분']) !== -1;
   }).length / (elapsedDays * 3)) * 100);
 
+  var activeDays = {};
+  allWorkouts.forEach(function (r) {
+    if (!r['날짜'] || r['완료여부'] === '미실시') return;
+    var d5 = parseDate_(r['날짜']);
+    if (d5 && d5 >= periodStart && d5 <= todayD) activeDays[r['날짜']] = true;
+  });
+
   return {
+    mode: mode,
     weekLabels: weekLabels,
     weightSeries: weightSeries,
     walkSeries: walkSeries,
-    weekAchievement: weekAchievement,
+    achievement: periodAchievement,
     mealRate: mealRate,
     bp: bp,
     summary: {
-      운동일수: computeWeekWorkoutDays_(allWorkouts, today),
-      걷기시간: walkSeries[11],
+      운동일수: Object.keys(activeDays).length,
+      걷기시간: Math.round(periodWalk),
       근력횟수: strengthCount,
       식사기록률: Math.min(mealRateAll, 100),
       체중변화: weightChange,
