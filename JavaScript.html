@@ -98,7 +98,7 @@ function renderAll() {
   if (!d) return;
 
   $('header-week').textContent =
-    d.week.totalWeeks + '주 중 ' + d.week.weekNum + '주차 · ' + d.week.dayNum + '일째 · ' +
+    d.week.weekNum + '주차 · ' + d.week.dayNum + '일째 · ' +
     d.today + ' (' + d.dayKo + ')';
 
   // 홈: 달성률
@@ -752,7 +752,7 @@ var MockServer = (function () {
       today: todayStr(),
       dayKo: ['일', '월', '화', '수', '목', '금', '토'][new Date().getDay()],
       settings: { 사용자명: '사용자', 시작체중: 114, 목표체중: 108, 키: 176, 시작일: todayStr() },
-      week: { weekNum: 1, dayNum: 4, totalWeeks: 12 },
+      week: { weekNum: 1, dayNum: 4 },
       plan: [
         { 운동종류: '평지 걷기', 목표시간: 20, 목표횟수: '', 세트: '', 설명: '대화가 가능한 속도로', 완료: mock.walk },
         { 운동종류: '의자 앉았다 일어나기', 목표시간: '', 목표횟수: 10, 세트: 2, 설명: '천천히', 완료: true },
