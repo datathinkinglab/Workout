@@ -128,7 +128,7 @@ Apps Script 편집기에서 코드를 수정한 뒤에는
 
 ### GitHub → Apps Script 자동 배포 (선택)
 
-`main` 브랜치에 병합되면 GitHub Actions가 [clasp](https://github.com/google/clasp)로
+기본(통합) 브랜치에 병합되면 GitHub Actions가 [clasp](https://github.com/google/clasp)로
 코드를 자동 업로드하고 기존 웹앱 배포를 갱신합니다
 (워크플로: `.github/workflows/deploy-appsscript.yml`). **단방향(GitHub → Apps Script)**
 이므로, Apps Script 편집기에서 직접 고친 내용은 다음 배포 때 덮어써질 수 있습니다.
