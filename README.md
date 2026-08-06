@@ -126,6 +126,26 @@ Apps Script 편집기에서 코드를 수정한 뒤에는
 `Stylesheet.html`/`JavaScript.html` 내용으로 치환해 브라우저로 열면
 목데이터 기반으로 동작합니다. (`google.script`가 없으면 자동으로 목모드)
 
+### GitHub → Apps Script 자동 배포 (선택)
+
+`main` 브랜치에 병합되면 GitHub Actions가 [clasp](https://github.com/google/clasp)로
+코드를 자동 업로드하고 기존 웹앱 배포를 갱신합니다
+(워크플로: `.github/workflows/deploy-appsscript.yml`). **단방향(GitHub → Apps Script)**
+이므로, Apps Script 편집기에서 직접 고친 내용은 다음 배포 때 덮어써질 수 있습니다.
+
+한 번만 준비하면 됩니다.
+
+1. **Apps Script API 켜기** — https://script.google.com/home/usersettings 에서 ON
+2. 내 PC에서 `npm i -g @google/clasp@2.4.2` → `clasp login` (→ `~/.clasprc.json` 생성)
+3. **저장소 Secrets 등록** (Settings → Secrets and variables → Actions)
+   - `CLASPRC_JSON` — `~/.clasprc.json` 파일 내용 전체
+   - `SCRIPT_ID` — Apps Script 프로젝트 설정의 "스크립트 ID"
+   - `DEPLOYMENT_ID` — 유지할 웹앱 배포 ID (`clasp deployments`로 확인, `AKfyc…`)
+
+> `DEPLOYMENT_ID`로 **기존 배포를 갱신**하므로 웹앱 URL이 그대로 유지됩니다.
+> 인증 토큰(`CLASPRC_JSON`)이 만료되면 Action이 실패하며, 이때 다시 `clasp login` 후
+> 시크릿을 갱신하면 됩니다.
+
 ---
 
 ## 개발 로드맵

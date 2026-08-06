@@ -1,0 +1,9 @@
+# clasp가 업로드할 파일만 화이트리스트로 지정한다.
+# (아래 목록 외의 모든 파일은 Apps Script로 push되지 않는다)
+**/**
+
+!appsscript.json
+!Code.gs
+!Index.html
+!Stylesheet.html
+!JavaScript.html
