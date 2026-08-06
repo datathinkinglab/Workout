@@ -14,7 +14,9 @@
 ## 주요 기능
 
 ### 🏠 홈 — 오늘의 생존 운동
-- `운동계획` 시트를 읽어 **오늘 할 운동을 자동 표시** (12주 기본 계획 자동 생성)
+- `운동계획` 시트를 읽어 **오늘 할 운동을 자동 표시** (12주 점진 계획 자동 생성)
+- **기간 제한 없이 계속** 사용합니다. 12주 계획이 끝난 뒤에도 마지막 주차의
+  운동이 이어서 표시되며, 시트에 주차를 더 추가하면 그만큼 자동 반영됩니다.
 - 항목을 탭 한 번으로 완료 체크 → 즉시 시트에 기록
 - 오늘 달성률 / 이번 주 운동일수 / 연속 기록일 표시
 - 아침·점심·저녁 식사 기록 여부 한눈에 확인
@@ -57,7 +59,7 @@
 | --- | --- |
 | `Code.gs` | 서버 로직 — 시트 생성/읽기/쓰기, 오늘의 운동 계산, 리포트 집계 |
 | `Index.html` | 화면 뼈대 (홈/운동/식사/건강/리포트 + 하단 내비게이션) |
-| `Stylesheet.html` | 스타일 (모바일 우선, 큰 버튼·큰 글씨, 라이트/다크 자동) |
+| `Stylesheet.html` | 스타일 (모바일 최적화 — 노치·홈 인디케이터 safe-area 대응, 탭 피드백, 큰 버튼·큰 글씨, 라이트/다크 자동) |
 | `JavaScript.html` | 화면 동작 — `google.script.run` 서버 호출, Chart.js 그래프 |
 | `appsscript.json` | Apps Script 매니페스트 (시간대 Asia/Seoul, 본인만 접근) |
 
@@ -70,7 +72,8 @@
 - **`식사기록`** — 기록ID · 날짜 · 시간 · 식사구분 · 음식명 · 식사량 · 채소 · 단백질 · 포만감 · 야식 · 음료 · 사진URL · 메모
 - **`건강기록`** — 기록ID · 날짜 · 체중 · 최고혈압 · 최저혈압 · 맥박 · 걸음수 · 수면시간 · 컨디션 · 허리둘레 · 메모
 - **`운동계획`** — 주차 · 요일 · 운동종류 · 목표시간 · 목표횟수 · 세트 · 설명
-  (12주 기본 계획이 자동 입력되며, 시트에서 자유롭게 수정하면 홈 화면에 바로 반영)
+  (12주 점진 계획이 자동 입력되며, 시트에서 자유롭게 수정하면 홈 화면에 바로 반영.
+  12주가 지나면 마지막 주차 계획이 계속 이어지고, 주차를 추가하면 그만큼 확장됩니다.)
 
 개인정보 보호를 위해 약 이름이나 상세 질환 정보는 저장하지 않는 구조입니다.
 
@@ -122,6 +125,26 @@ Apps Script 편집기에서 코드를 수정한 뒤에는
 배포 없이 화면만 확인하려면 `Index.html`의 `<?!= include(...) ?>` 부분을
 `Stylesheet.html`/`JavaScript.html` 내용으로 치환해 브라우저로 열면
 목데이터 기반으로 동작합니다. (`google.script`가 없으면 자동으로 목모드)
+
+### GitHub → Apps Script 자동 배포 (선택)
+
+기본(통합) 브랜치에 병합되면 GitHub Actions가 [clasp](https://github.com/google/clasp)로
+코드를 자동 업로드하고 기존 웹앱 배포를 갱신합니다
+(워크플로: `.github/workflows/deploy-appsscript.yml`). **단방향(GitHub → Apps Script)**
+이므로, Apps Script 편집기에서 직접 고친 내용은 다음 배포 때 덮어써질 수 있습니다.
+
+한 번만 준비하면 됩니다.
+
+1. **Apps Script API 켜기** — https://script.google.com/home/usersettings 에서 ON
+2. 내 PC에서 `npm i -g @google/clasp@2.4.2` → `clasp login` (→ `~/.clasprc.json` 생성)
+3. **저장소 Secrets 등록** (Settings → Secrets and variables → Actions)
+   - `CLASPRC_JSON` — `~/.clasprc.json` 파일 내용 전체
+   - `SCRIPT_ID` — Apps Script 프로젝트 설정의 "스크립트 ID"
+   - `DEPLOYMENT_ID` — 유지할 웹앱 배포 ID (`clasp deployments`로 확인, `AKfyc…`)
+
+> `DEPLOYMENT_ID`로 **기존 배포를 갱신**하므로 웹앱 URL이 그대로 유지됩니다.
+> 인증 토큰(`CLASPRC_JSON`)이 만료되면 Action이 실패하며, 이때 다시 `clasp login` 후
+> 시크릿을 갱신하면 됩니다.
 
 ---
 

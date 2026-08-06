@@ -22,7 +22,10 @@ HEADERS[SHEETS.HEALTH] = ['기록ID', '날짜', '체중', '최고혈압', '최�
 HEADERS[SHEETS.PLAN] = ['주차', '요일', '운동종류', '목표시간', '목표횟수', '세트', '설명'];
 
 var DAY_KO = ['일', '월', '화', '수', '목', '금', '토'];
-var TOTAL_WEEKS = 12;
+// 기본 운동계획이 채워지는 주차 수. 이 앱은 12주로 끝나지 않고 계속 기록됩니다.
+// 12주 이후에는 마지막으로 정의된 주차의 계획을 그대로 이어서 사용하며,
+// 시트에서 주차를 더 추가하면 그만큼 자동으로 반영됩니다.
+var DEFAULT_PLAN_WEEKS = 12;
 
 // ---------------------------------------------------------------- 웹앱 진입점
 
@@ -168,7 +171,7 @@ function buildDefaultPlan_() {
   var walkMinutes = [10, 12, 15, 18, 20, 22, 25, 25, 28, 28, 30, 30];
   var days = ['월', '화', '수', '목', '금', '토', '일'];
   var rows = [];
-  for (var w = 1; w <= TOTAL_WEEKS; w++) {
+  for (var w = 1; w <= DEFAULT_PLAN_WEEKS; w++) {
     days.forEach(function (d) {
       if (d !== '일') {
         rows.push([w, d, '평지 걷기', walkMinutes[w - 1], '', '', '대화가 가능한 속도로']);
@@ -226,18 +229,33 @@ function getWeekInfo_(settings, dateStr) {
   var cur = parseDate_(dateStr);
   var diffDays = Math.floor((cur - start) / 86400000);
   if (diffDays < 0) diffDays = 0;
-  var weekNum = Math.floor(diffDays / 7) + 1;
+  // 주차·일차는 상한 없이 계속 증가합니다 (12주 제한 없음).
   return {
     dayNum: diffDays + 1,
-    weekNum: Math.min(weekNum, TOTAL_WEEKS),
-    totalWeeks: TOTAL_WEEKS
+    weekNum: Math.floor(diffDays / 7) + 1
   };
 }
 
+/** 운동계획 시트에 정의된 가장 큰 주차 (최소 1). */
+function maxPlanWeek_(planRows) {
+  var max = 0;
+  (planRows || readRecords_(SHEETS.PLAN)).forEach(function (r) {
+    var w = Number(r['주차']);
+    if (!isNaN(w) && w > max) max = w;
+  });
+  return max || 1;
+}
+
+/**
+ * 해당 주차·요일의 운동계획을 반환한다.
+ * 계획에 정의된 마지막 주차를 넘어가면 마지막 주차의 계획을 그대로 이어서 쓴다
+ * → 12주(또는 시트에 채워진 주차)가 지나도 오늘의 운동이 계속 표시된다.
+ */
 function getPlanFor_(weekNum, dayKo, planRows) {
   var rows = planRows || readRecords_(SHEETS.PLAN);
+  var lookup = Math.min(weekNum, maxPlanWeek_(rows));
   return rows.filter(function (r) {
-    return Number(r['주차']) === weekNum && String(r['요일']) === dayKo;
+    return Number(r['주차']) === lookup && String(r['요일']) === dayKo;
   });
 }
 
@@ -362,8 +380,9 @@ function computeAdvice_(settings, dateStr, allWorkouts, allMeals, planRows) {
 }
 
 function nextWeekAdjusted_(weekNum, planRows) {
-  var target = Math.min(weekNum + 1, TOTAL_WEEKS);
-  return (planRows || readRecords_(SHEETS.PLAN)).some(function (r) {
+  var rows = planRows || readRecords_(SHEETS.PLAN);
+  var target = Math.min(weekNum + 1, maxPlanWeek_(rows));
+  return rows.some(function (r) {
     return Number(r['주차']) === target && String(r['설명']).indexOf('자동 조정') !== -1;
   });
 }
@@ -378,7 +397,7 @@ function applyEasierNextWeek() {
   try {
     var settings = getSettings_();
     var week = getWeekInfo_(settings, todayStr_());
-    var target = Math.min(week.weekNum + 1, TOTAL_WEEKS);
+    var target = Math.min(week.weekNum + 1, maxPlanWeek_(null));
     if (!nextWeekAdjusted_(week.weekNum, null)) {
       var sh = getSheet_(SHEETS.PLAN);
       var values = sh.getDataRange().getValues();

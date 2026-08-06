@@ -1,0 +1,45 @@
+name: Deploy to Apps Script
+
+# 기본(통합) 브랜치에 push(= PR 병합)될 때 자동으로 Apps Script에 코드를 올리고 재배포한다.
+on:
+  push:
+    branches: [ claude/health-tracking-webapp-csssal ]
+  workflow_dispatch: {}   # 필요할 때 수동 실행도 가능
+
+# 동시에 여러 배포가 겹치지 않도록 직렬화
+concurrency:
+  group: appsscript-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 소스 체크아웃
+        uses: actions/checkout@v4
+
+      - name: Node 설치
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: clasp 설치
+        run: npm install -g @google/clasp@2.4.2
+
+      - name: clasp 인증 파일 생성
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+        run: printf '%s' "$CLASPRC_JSON" > "$HOME/.clasprc.json"
+
+      - name: .clasp.json 생성 (프로젝트 지정)
+        env:
+          SCRIPT_ID: ${{ secrets.SCRIPT_ID }}
+        run: printf '{"scriptId":"%s","rootDir":"."}' "$SCRIPT_ID" > .clasp.json
+
+      - name: 코드 업로드 (clasp push)
+        run: clasp push -f
+
+      - name: 기존 웹앱 배포 갱신 (URL 유지)
+        env:
+          DEPLOYMENT_ID: ${{ secrets.DEPLOYMENT_ID }}
+        run: clasp deploy --deploymentId "$DEPLOYMENT_ID" --description "auto-deploy ${{ github.sha }}"
