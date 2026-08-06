@@ -44,6 +44,23 @@ function toast(msg) {
 
 function setBusy(on) { document.body.classList.toggle('busy', on); }
 
+/* 홈 히어로 원형 진행 링 — 달성률(%)에 맞춰 채운다 */
+var RING_CIRCUMFERENCE = 2 * Math.PI * 52; // r=52 → 약 326.73
+function setRing(pct) {
+  var el = $('home-ring-fill');
+  if (!el) return;
+  var p = Math.max(0, Math.min(100, Number(pct) || 0));
+  el.style.strokeDasharray = RING_CIRCUMFERENCE;
+  el.style.strokeDashoffset = RING_CIRCUMFERENCE * (1 - p / 100);
+}
+
+/* 홈 히어로 통계 타일 (값 크게, 라벨 작게) */
+function heroStat(value, label) {
+  return '<div class="hero-stat">' +
+    '<span class="hero-stat-value">' + esc(value) + '</span>' +
+    '<span class="hero-stat-label">' + esc(label) + '</span></div>';
+}
+
 /* ───────────────────────── 초기화 ───────────────────────── */
 window.addEventListener('load', function () {
   bindNav();
@@ -101,12 +118,13 @@ function renderAll() {
     d.week.weekNum + '주차 · ' + d.week.dayNum + '일째 · ' +
     d.today + ' (' + d.dayKo + ')';
 
-  // 홈: 달성률
+  // 홈: 달성률 (원형 진행 링)
   $('home-achievement').textContent = d.achievement + '%';
-  $('home-progress-fill').style.width = d.achievement + '%';
+  setRing(d.achievement);
   $('home-meta').innerHTML =
-    '이번 주 운동 <b>' + d.weekWorkoutDays + '일째</b> · 연속 기록 <b>' + d.streak + '일째</b>' +
-    ' · 오늘 ' + d.doneItems + '/' + d.totalItems + ' 완료';
+    heroStat(d.weekWorkoutDays + '일', '이번 주 운동') +
+    heroStat(d.streak + '일', '연속 기록') +
+    heroStat(d.doneItems + '/' + d.totalItems, '오늘 완료');
 
   renderCoach();
   renderHomePlan();
